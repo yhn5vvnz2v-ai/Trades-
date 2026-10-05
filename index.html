@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0b0d12">
+<link rel="manifest" href="manifest.json">
+<title>Stock Practice Trader</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#0b0d12;color:#f5f7fb;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+.app{max-width:700px;margin:auto;padding:18px 16px 100px}
+header{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
+h1{font-size:24px;margin:0}.pill{background:#1b2030;border-radius:999px;padding:7px 10px;font-size:12px;color:#9ee6b3}
+.card{background:#141822;border:1px solid #242a38;border-radius:18px;padding:16px;margin-bottom:14px}
+.balance{font-size:30px;font-weight:800;margin:5px 0}.muted{color:#929aaa;font-size:13px}.green{color:#45d483}.red{color:#ff6574}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.stat{background:#0f121a;border-radius:14px;padding:12px}.stat b{display:block;font-size:18px;margin-top:4px}
+.search{display:flex;gap:8px}.search input{flex:1;background:#0f121a;color:white;border:1px solid #2a3040;border-radius:12px;padding:13px;font-size:16px}
+button{border:0;border-radius:12px;padding:12px 15px;font-weight:700;font-size:14px;cursor:pointer}.primary{background:#f5f7fb;color:#0b0d12}.buy{background:#183c29;color:#6df0a1}.sell{background:#4a2028;color:#ff8d99}
+.stock{display:flex;justify-content:space-between;align-items:center;margin:12px 0;padding:12px;background:#0f121a;border-radius:14px}.stock strong{font-size:18px}.right{text-align:right}
+.row{display:flex;justify-content:space-between;align-items:center;gap:10px}.actions{display:flex;gap:8px;margin-top:10px}.actions button{flex:1}
+.list{margin-top:8px}.item{display:flex;justify-content:space-between;padding:12px 0;border-bottom:1px solid #252b37}.item:last-child{border-bottom:0}
+.modal{position:fixed;inset:0;background:#0009;display:none;align-items:flex-end;justify-content:center;padding:12px}.modal.open{display:flex}.sheet{background:#151923;border:1px solid #2b3140;border-radius:22px;padding:18px;width:min(600px,100%)}.sheet h2{margin-top:0}.sheet input{width:100%;padding:13px;border-radius:12px;border:1px solid #303747;background:#0d1017;color:white;font-size:17px;margin:8px 0 12px}
+.empty{text-align:center;color:#777f90;padding:18px 0}
+small{color:#777f90}
+</style>
+</head>
+<body>
+<div class="app">
+<header><h1>Stock Practice Trader</h1><span class="pill">PAPER TRADING</span></header>
+
+<div class="card">
+  <div class="muted">Portfolio value</div>
+  <div class="balance" id="portfolio">$10,000.00</div>
+  <div id="totalPL" class="green">+$0.00 (0.00%)</div>
+  <div class="grid" style="margin-top:12px">
+    <div class="stat"><span class="muted">Cash</span><b id="cash">$10,000.00</b></div>
+    <div class="stat"><span class="muted">Invested</span><b id="invested">$0.00</b></div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="search">
+    <input id="search" placeholder="Search ticker (AAPL, TSLA...)">
+    <button class="primary" onclick="searchStock()">Search</button>
+  </div>
+  <div id="stockResult"></div>
+</div>
+
+<div class="card">
+  <div class="row"><h2 style="margin:0;font-size:19px">Watchlist</h2><button class="primary" onclick="resetDemo()">Reset</button></div>
+  <div id="watchlist"></div>
+</div>
+
+<div class="card">
+  <h2 style="margin:0;font-size:19px">Your holdings</h2>
+  <div id="holdings"></div>
+</div>
+
+<div class="card">
+  <h2 style="margin:0;font-size:19px">Order history</h2>
+  <div id="history"></div>
+</div>
+</div>
+
+<div class="modal" id="modal">
+<div class="sheet">
+<h2 id="modalTitle">Buy</h2>
+<div class="muted" id="modalInfo"></div>
+<input id="qty" type="number" min="1" step="1" placeholder="Number of shares">
+<div class="row"><span class="muted">Estimated total</span><b id="estimate">$0.00</b></div>
+<div class="actions"><button class="primary" onclick="closeModal()">Cancel</button><button id="confirm" class="buy" onclick="confirmOrder()">Confirm</button></div>
+</div>
+</div>
+
+<script>
+const DEFAULTS={
+ AAPL:{name:"Apple",price:255.00,change:0.72},
+ TSLA:{name:"Tesla",price:455.00,change:-1.18},
+ NVDA:{name:"NVIDIA",price:187.00,change:1.54},
+ AMZN:{name:"Amazon",price:229.00,change:0.41},
+ MSFT:{name:"Microsoft",price:517.00,change:0.28},
+ GOOGL:{name:"Alphabet",price:245.00,change:-0.33},
+ META:{name:"Meta",price:735.00,change:0.87},
+ NFLX:{name:"Netflix",price:1200.00,change:1.12}
+};
+let data=JSON.parse(localStorage.getItem("spt-data"))||{
+ cash:10000, holdings:{}, history:[], watch:["AAPL","TSLA","NVDA","AMZN","MSFT"]
+};
+let prices=JSON.parse(localStorage.getItem("spt-prices"))||structuredClone(DEFAULTS);
+let orderSide=null, orderTicker=null;
+
+function money(n){return "$"+Number(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})}
+function save(){localStorage.setItem("spt-data",JSON.stringify(data));localStorage.setItem("spt-prices",JSON.stringify(prices))}
+function tick(){
+ Object.keys(prices).forEach(t=>{
+   let p=prices[t].price;
+   let move=(Math.random()-.5)*0.018;
+   prices[t].price=Math.max(.01,p*(1+move));
+   prices[t].change=move*100;
+ });
+ save();render();
+}
+function quote(t){
+ if(!prices[t]) prices[t]=DEFAULTS[t]?structuredClone(DEFAULTS[t]):{name:t,price:100,change:0};
+ return prices[t];
+}
+function searchStock(){
+ let t=document.getElementById("search").value.trim().toUpperCase();
+ if(!t)return;
+ if(!prices[t]) prices[t]={name:t+" Corporation",price:100,change:0};
+ renderResult(t); save();
+}
+function renderResult(t){
+ let q=quote(t), owned=data.holdings[t]?.shares||0;
+ document.getElementById("stockResult").innerHTML=`<div class="stock">
+ <div><strong>${t}</strong><div class="muted">${q.name}</div></div>
+ <div class="right"><strong>${money(q.price)}</strong><div class="${q.change>=0?'green':'red'}">${q.change>=0?'+':''}${q.change.toFixed(2)}%</div></div>
+ </div>
+ <div class="actions"><button class="buy" onclick="openOrder('buy','${t}')">Buy</button><button class="sell" onclick="openOrder('sell','${t}')">Sell</button></div>
+ <small>Shares owned: ${owned}</small>`;
+}
+function renderWatch(){
+ let el=document.getElementById("watchlist");
+ el.innerHTML=data.watch.map(t=>{
+   let q=quote(t);
+   return `<div class="stock"><div><strong>${t}</strong><div class="muted">${q.name}</div></div><div class="right"><strong>${money(q.price)}</strong><div class="${q.change>=0?'green':'red'}">${q.change>=0?'+':''}${q.change.toFixed(2)}%</div></div></div>`;
+ }).join("");
+}
+function renderHoldings(){
+ let el=document.getElementById("holdings"), arr=Object.entries(data.holdings).filter(([t,h])=>h.shares>0);
+ if(!arr.length){el.innerHTML='<div class="empty">No stocks yet. Search a ticker and buy some shares.</div>';return}
+ el.innerHTML=arr.map(([t,h])=>{
+  let q=quote(t), value=h.shares*q.price, pl=(q.price-h.avg)*h.shares;
+  return `<div class="item"><div><strong>${t}</strong><div class="muted">${h.shares} shares · avg ${money(h.avg)}</div></div><div class="right"><strong>${money(value)}</strong><div class="${pl>=0?'green':'red'}">${pl>=0?'+':''}${money(pl)}</div></div></div>`;
+ }).join("");
+}
+function renderHistory(){
+ let el=document.getElementById("history");
+ if(!data.history.length){el.innerHTML='<div class="empty">No orders yet.</div>';return}
+ el.innerHTML=data.history.slice().reverse().slice(0,20).map(o=>`<div class="item"><div><strong class="${o.side==='BUY'?'green':'red'}">${o.side}</strong> ${o.qty} ${o.ticker}<div class="muted">${o.time}</div></div><div><strong>${money(o.total)}</strong><div class="muted">@ ${money(o.price)}</div></div></div>`).join("");
+}
+function render(){
+ let invested=0;
+ Object.entries(data.holdings).forEach(([t,h])=>invested+=h.shares*quote(t).price);
+ let value=data.cash+invested, pl=value-10000;
+ document.getElementById("portfolio").textContent=money(value);
+ document.getElementById("cash").textContent=money(data.cash);
+ document.getElementById("invested").textContent=money(invested);
+ document.getElementById("totalPL").textContent=(pl>=0?"+":"")+money(pl)+" ("+(pl/100).toFixed(2)+"%)";
+ document.getElementById("totalPL").className=pl>=0?"green":"red";
+ renderWatch();renderHoldings();renderHistory();
+ let s=document.getElementById("search").value.trim().toUpperCase(); if(s)renderResult(s);
+}
+function openOrder(side,t){
+ orderSide=side;orderTicker=t;document.getElementById("qty").value="";
+ let q=quote(t);document.getElementById("modalTitle").textContent=(side==="buy"?"Buy ":"Sell ")+t;
+ document.getElementById("modalInfo").textContent=`${q.name} · ${money(q.price)} per share`;
+ document.getElementById("confirm").className=side==="buy"?"buy":"sell";
+ document.getElementById("modal").classList.add("open"); updateEstimate();
+}
+function updateEstimate(){let q=quote(orderTicker||"AAPL"),n=Number(document.getElementById("qty").value)||0;document.getElementById("estimate").textContent=money(q.price*n)}
+document.getElementById("qty").addEventListener("input",updateEstimate);
+function closeModal(){document.getElementById("modal").classList.remove("open")}
+function confirmOrder(){
+ let q=quote(orderTicker), n=Math.floor(Number(document.getElementById("qty").value));
+ if(n<1)return alert("Enter at least 1 share.");
+ let total=q.price*n, h=data.holdings[orderTicker]||{shares:0,avg:0};
+ if(orderSide==="buy"){
+   if(total>data.cash)return alert("Not enough cash.");
+   h.avg=((h.avg*h.shares)+(q.price*n))/(h.shares+n);h.shares+=n;data.cash-=total;
+ }else{
+   if(n>h.shares)return alert("You don't own that many shares.");
+   h.shares-=n;data.cash+=total;
+ }
+ data.holdings[orderTicker]=h;
+ data.history.push({side:orderSide.toUpperCase(),ticker:orderTicker,qty:n,price:q.price,total,time:new Date().toLocaleString()});
+ save();closeModal();render();
+}
+function resetDemo(){if(confirm("Reset your account to $10,000 and erase orders?")){data={cash:10000,holdings:{},history:[],watch:["AAPL","TSLA","NVDA","AMZN","MSFT"]};prices=structuredClone(DEFAULTS);save();render()}}
+render();setInterval(tick,8000);
+</script>
+</body>
+</html>
